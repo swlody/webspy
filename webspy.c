@@ -1,7 +1,7 @@
 /*
  * Webspy
  *
- * AUTHOR:	Sam Wlody
+ * AUTHORS:	Tim Chu & Sam Wlody
  *
  * FILE:	webspy.c
  *
@@ -29,13 +29,6 @@
 extern pcap_t *init_pcap(FILE *thefile, char *filename);
 extern void process_packet(u_char *, const struct pcap_pkthdr *, const u_char *);
 
-int
-usage(void)
-{
-	fprintf(stderr, "prpacket <tcpdump file>\n");
-	return 0;
-}
-
 /*
  * Function: main()
  *
@@ -61,7 +54,7 @@ main(int argc, char *argv[])
 	 */
 	if (argc != 2) {
 		fprintf(stderr, "%s: Invalid number of arguments\n", argv[0]);
-		usage();
+		fprintf(stderr, "%s <tcpdump file>\n", argv[0]);
 		exit(1);
 	}
 
@@ -80,7 +73,7 @@ main(int argc, char *argv[])
 	 * end of the file.
 	 */
 	if ((pcap_loop(pcapd, 0, process_packet, buffer)) == -1)
-		pcap_perror (pcapd, argv[0]);
+		pcap_perror(pcapd, argv[0]);
 
 	/*
 	 * Exit with no errors

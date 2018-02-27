@@ -4,18 +4,18 @@
 # PURPOSE:	Compile the program.
 #
 
+CC = gcc
+
 # Location of the BPF Assembler
 BPFA = ./bpfa/bpfa
-
 # Compiler flags
-CC = gcc
 CFLAGS	= -Wall -g -I.
 LDFLAGS = -L.
+LDLIBS = -lpcap
 
 all: httpfilter.h webspy
 
 webspy: webspy.o packet.o
-	$(CC) $(CFLAGS) -o webspy webspy.o packet.o $(LDFLAGS) -lpcap
 
 httpfilter.h: http.bpf
 	$(BPFA) $< > $@
@@ -24,7 +24,7 @@ httpfilter.h: http.bpf
 # Maintainence Targets
 #
 clean:
-	rm -f *.o httpfilter.h
+	rm -f *.o *.core httpfilter.h
 
 clobber: clean
 	rm -f webspy

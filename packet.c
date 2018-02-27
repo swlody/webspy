@@ -50,14 +50,14 @@ void
 process_packet(u_char *, const struct pcap_pkthdr *, const u_char *);
 
 /*
- * Function: init_pcap ()
+ * Function: init_pcap()
  *
  * Purpose:
  *	This function initializes the packet capture library for reading
  *	packets from a packet capturing program.
  */
 pcap_t *
-init_pcap (FILE *thefile, char *filename)
+init_pcap(FILE *thefile, char *filename)
 {
 	char error[PCAP_ERRBUF_SIZE];	/* Error buffer */
 	pcap_t *pcapd;				    /* Pcap descriptor */
@@ -93,7 +93,7 @@ init_pcap (FILE *thefile, char *filename)
  *             header.
  */
 void
-print_ether(FILE *outfile, const unsigned char ** packet)
+print_ether(FILE *outfile, const unsigned char **packet)
 {
 	struct ether_header header;
 	int index;
@@ -101,7 +101,7 @@ print_ether(FILE *outfile, const unsigned char ** packet)
 	/*
 	 * Align the data by copying it into a Ethernet header structure.
 	 */
-	bcopy(*packet, &header, sizeof(struct ether_header));
+	memcpy(&header, *packet, sizeof(struct ether_header));
 
 	/*
 	 * Print out the Ethernet information.
@@ -113,7 +113,7 @@ print_ether(FILE *outfile, const unsigned char ** packet)
 	fprintf(outfile, "\n");
 
 	fprintf(outfile, "Destination Address:\t");
-	for(index=0; index < ETHER_ADDR_LEN; index++)
+	for (index=0; index < ETHER_ADDR_LEN; index++)
 		fprintf (outfile, "%x", header.ether_dhost[index]);
 	fprintf(outfile, "\n");
 
@@ -178,7 +178,7 @@ print_ip(FILE *outfile, const unsigned char **packet)
 	 * This is apparently what's causing me problems, so I will word align
 	 * it just like tcpdump does.
 	 */
-	bcopy(*packet, &ip_header, sizeof(struct ip));
+	memcpy(&ip_header, *packet, sizeof(struct ip));
 
 	/*
 	 * TODO: Determine size of IP header.
@@ -203,12 +203,6 @@ print_ip(FILE *outfile, const unsigned char **packet)
  *	packet_header - The header that libpcap precedes a packet with.  It
  *	                indicates how much of the packet was captured.
  *	packet        - A pointer to the captured packet.
- *
- * Outputs:
- *	None.
- *
- * Return value:
- *	None.
  */
 void
 process_packet(u_char *thing,
