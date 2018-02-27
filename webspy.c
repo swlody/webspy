@@ -1,7 +1,7 @@
 /*
  * Webspy
  *
- * AUTHOR:	You!
+ * AUTHOR:	Sam Wlody
  *
  * FILE:	webspy.c
  *
@@ -24,20 +24,20 @@
 #include "webspy.h"
 
 /*
- * Function Prototypes
+ * Function Prototypes - defined in packet.c
  */
-extern pcap_t * init_pcap (FILE * thefile, char * filename);
-extern void process_packet (u_char *, const struct pcap_pkthdr *, const u_char *);
+extern pcap_t *init_pcap(FILE *thefile, char *filename);
+extern void process_packet(u_char *, const struct pcap_pkthdr *, const u_char *);
 
 int
-usage (void)
+usage(void)
 {
-	fprintf (stderr, "prpacket <tcpdump file>\n");
+	fprintf(stderr, "prpacket <tcpdump file>\n");
 	return 0;
 }
 
 /*
- * Function: main ()
+ * Function: main()
  *
  * Purpose:
  *	This function will interpret the command line arguments and get
@@ -48,22 +48,21 @@ usage (void)
  *	argv - The command line arguments.
  */
 int
-main (int argc, char ** argv)
+main(int argc, char *argv[])
 {
 	/* The libpcap descriptor */
-	pcap_t * pcapd;
+	pcap_t *pcapd;
 
 	/* The buffer that we have libpcap use for packet capture */
-	static unsigned char buffer [MAX_SNAPLEN];
+	static unsigned char buffer[MAX_SNAPLEN];
 
 	/*
 	 * Determine if the command line arguments are valid.
 	 */
-	if (argc != 2)
-	{
-		fprintf (stderr, "%s: Invalid number of arguments\n", argv[0]);
-		usage ();
-		exit (1);
+	if (argc != 2) {
+		fprintf(stderr, "%s: Invalid number of arguments\n", argv[0]);
+		usage();
+		exit(1);
 	}
 
 	/*
@@ -71,23 +70,20 @@ main (int argc, char ** argv)
 	 * to filter out unwanted connections, so we'll be reading from a file
 	 * of some sort.
 	 */
-	if ((pcapd = init_pcap (stdout, argv[1])) == NULL)
-	{
-		fprintf (stderr, "%s: Failed to initialize pcap\n", argv[0]);
-		exit (1);
+	if ((pcapd = init_pcap(stdout, argv[1])) == NULL) {
+		fprintf(stderr, "%s: Failed to initialize pcap\n", argv[0]);
+		exit(1);
 	}
 
 	/*
 	 * Begin looping through collecting packets until we hit the
 	 * end of the file.
 	 */
-	if ((pcap_loop (pcapd, 0, process_packet, buffer)) == -1)
-	{
+	if ((pcap_loop(pcapd, 0, process_packet, buffer)) == -1)
 		pcap_perror (pcapd, argv[0]);
-	}
 
 	/*
 	 * Exit with no errors
 	 */
-	exit (0);
+	exit(0);
 }

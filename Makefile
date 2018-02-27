@@ -5,22 +5,17 @@
 #
 
 # Location of the BPF Assembler
-BPFA = $(HOME)/src/bpfa/bpfa
+BPFA = ./bpfa/bpfa
 
 # Compiler flags
-CFLAGS	= -g -I.
+CC = gcc
+CFLAGS	= -Wall -g -I.
 LDFLAGS = -L.
 
-all: webspy
+all: httpfilter.h webspy
 
 webspy: webspy.o packet.o
-	cc $(CFLAGS) -o webspy webspy.o packet.o $(LDFLAGS) -lpcap
-
-webspy.o: webspy.c
-	cc ${CFLAGS} -c webspy.c
-
-packet.o: packet.c httpfilter.h
-	cc ${CFLAGS} -c packet.c
+	$(CC) $(CFLAGS) -o webspy webspy.o packet.o $(LDFLAGS) -lpcap
 
 httpfilter.h: http.bpf
 	$(BPFA) $< > $@
@@ -29,7 +24,7 @@ httpfilter.h: http.bpf
 # Maintainence Targets
 #
 clean:
-	rm -f *.o *.core httpfilter.h
+	rm -f *.o httpfilter.h
 
 clobber: clean
 	rm -f webspy

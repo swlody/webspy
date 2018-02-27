@@ -41,12 +41,13 @@
 /*
  * The descriptor of the output file.
  */
-FILE * outfile;
+FILE *outfile;
 
 /*
  * Function Prototypes
  */
-void process_packet (u_char *, const struct pcap_pkthdr *, const u_char *);
+void 
+process_packet(u_char *, const struct pcap_pkthdr *, const u_char *);
 
 /*
  * Function: init_pcap ()
@@ -56,10 +57,10 @@ void process_packet (u_char *, const struct pcap_pkthdr *, const u_char *);
  *	packets from a packet capturing program.
  */
 pcap_t *
-init_pcap (FILE * thefile, char * filename)
+init_pcap (FILE *thefile, char *filename)
 {
-	char		error[PCAP_ERRBUF_SIZE];	/* Error buffer */
-	pcap_t *	pcapd;				/* Pcap descriptor */
+	char error[PCAP_ERRBUF_SIZE];	/* Error buffer */
+	pcap_t *pcapd;				    /* Pcap descriptor */
 
 	/*
 	 * Setup the global file pointer.
@@ -69,9 +70,8 @@ init_pcap (FILE * thefile, char * filename)
 	/*
 	 * Open the dump file and get a pcap descriptor.
 	 */
-	if ((pcapd=pcap_open_offline (filename, error)) == NULL)
-	{
-		fprintf (stderr, "Error is %s\n", error);
+	if ((pcapd = pcap_open_offline(filename, error)) == NULL) {
+		fprintf(stderr, "Error is %s\n", error);
 		return NULL;
 	}
 
@@ -93,7 +93,7 @@ init_pcap (FILE * thefile, char * filename)
  *             header.
  */
 void
-print_ether (FILE * outfile, const unsigned char ** packet)
+print_ether(FILE *outfile, const unsigned char ** packet)
 {
 	struct ether_header header;
 	int index;
@@ -101,54 +101,49 @@ print_ether (FILE * outfile, const unsigned char ** packet)
 	/*
 	 * Align the data by copying it into a Ethernet header structure.
 	 */
-	bcopy (*packet, &header, sizeof (struct ether_header));
+	bcopy(*packet, &header, sizeof(struct ether_header));
 
 	/*
 	 * Print out the Ethernet information.
 	 */
-	fprintf (outfile, "================= ETHERNET HEADER ==============\n");
-	fprintf (outfile, "Source Address:\t\t");
+	fprintf(outfile, "================= ETHERNET HEADER ==============\n");
+	fprintf(outfile, "Source Address:\t\t");
 	for (index=0; index < ETHER_ADDR_LEN; index++)
-	{
-		fprintf (outfile, "%x", header.ether_shost[index]);
-	}
-	fprintf (outfile, "\n");
+		fprintf(outfile, "%x", header.ether_shost[index]);
+	fprintf(outfile, "\n");
 
-	fprintf (outfile, "Destination Address:\t");
-	for (index=0; index < ETHER_ADDR_LEN; index++)
-	{
+	fprintf(outfile, "Destination Address:\t");
+	for(index=0; index < ETHER_ADDR_LEN; index++)
 		fprintf (outfile, "%x", header.ether_dhost[index]);
-	}
-	fprintf (outfile, "\n");
+	fprintf(outfile, "\n");
 
-	fprintf (outfile, "Protocol Type:\t\t");
-	switch (ntohs(header.ether_type))
-	{
+	fprintf(outfile, "Protocol Type:\t\t");
+	switch (ntohs(header.ether_type)) {
 		case ETHERTYPE_PUP:
-			fprintf (outfile, "PUP Protocol\n");
+			fprintf(outfile, "PUP Protocol\n");
 			break;
 
 		case ETHERTYPE_IP:
-			fprintf (outfile, "IP Protocol\n");
+			fprintf(outfile, "IP Protocol\n");
 			break;
 
 		case ETHERTYPE_ARP:
-			fprintf (outfile, "ARP Protocol\n");
+			fprintf(outfile, "ARP Protocol\n");
 			break;
 
 		case ETHERTYPE_REVARP:
-			fprintf (outfile, "RARP Protocol\n");
+			fprintf(outfile, "RARP Protocol\n");
 			break;
 
 		default:
-			fprintf (outfile, "Unknown Protocol: %x\n", header.ether_type);
+			fprintf(outfile, "Unknown Protocol: %x\n", header.ether_type);
 			break;
 	}
 
 	/*
 	 * Adjust the pointer to point after the Ethernet header.
 	 */
-	*packet += sizeof (struct ether_header);
+	*packet += sizeof(struct ether_header);
 
 	/*
 	 * Return indicating no errors.
@@ -171,7 +166,7 @@ print_ether (FILE * outfile, const unsigned char ** packet)
  *             header.
  */
 void
-print_ip (FILE * outfile, const unsigned char ** packet)
+print_ip(FILE *outfile, const unsigned char **packet)
 {
 	struct ip ip_header;
 
@@ -183,7 +178,7 @@ print_ip (FILE * outfile, const unsigned char ** packet)
 	 * This is apparently what's causing me problems, so I will word align
 	 * it just like tcpdump does.
 	 */
-	bcopy (*packet, &ip_header, sizeof (struct ip));
+	bcopy(*packet, &ip_header, sizeof(struct ip));
 
 	/*
 	 * TODO: Determine size of IP header.
@@ -196,7 +191,7 @@ print_ip (FILE * outfile, const unsigned char ** packet)
 }
 
 /*
- * Function: process_packet ()
+ * Function: process_packet()
  *
  * Purpose:
  *	This function is called each time a packet is captured.  It will
@@ -216,33 +211,31 @@ print_ip (FILE * outfile, const unsigned char ** packet)
  *	None.
  */
 void
-process_packet (u_char * thing,
-                const struct pcap_pkthdr * packet_header,
-                const u_char * packet)
+process_packet(u_char *thing,
+               const struct pcap_pkthdr *packet_header,
+               const u_char *packet)
 {
 	/* Determine where the IP Header is */
-	const unsigned char *		pointer;
+	const unsigned char *pointer;
 
 	/* Length of the data */
-	long		packet_length;
+	long packet_length;
 
 	/*
 	 * Filter the packet using our BPF filter.
 	 */
-	if ((pcap_offline_filter (&HTTPFilter, packet_header, packet) == 0))
-	{
+	if ((pcap_offline_filter(&HTTPFilter, packet_header, packet) == 0))
 		return;
-	}
 
 	/*
 	 * Print the Ethernet Header
 	 */
 	pointer = packet;
-	print_ether (outfile, &pointer);
+	print_ether(outfile, &pointer);
 
 	/*
 	 * Find the pointer to the IP header.
 	 */
-	print_ip (outfile, &pointer);
+	print_ip(outfile, &pointer);
 	return;
 }

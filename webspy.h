@@ -1,5 +1,6 @@
 /*
  * Webspy Header file
+ * Compile with -L.
  */
 
 #include <pcap.h>
