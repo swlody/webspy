@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <assert.h>
 
 /*
  * Standard UNIX includes
@@ -168,6 +169,9 @@ print_ether(FILE *outfile, const unsigned char **packet)
 void
 print_ip(FILE *outfile, const unsigned char **packet)
 {
+	// This is where all our code goes
+	// we don't care about the TCP header, only the IP header and the HTTP request
+	// which occurs immediately after the TCP header
 	struct ip ip_header;
 
 	/*
@@ -180,9 +184,31 @@ print_ip(FILE *outfile, const unsigned char **packet)
 	 */
 	memcpy(&ip_header, *packet, sizeof(struct ip));
 
-	/*
-	 * TODO: Determine size of IP header.
-	 */
+	// both of these return 20 bytes for all packets in httpdump and httpsdump
+	// will they ever be different?
+	int ip_length = ip_header.ip_hl * 4;
+	// int ip_length = sizeof(struct ip);
+
+	// The header should be a TCP header (0x06), otherwise we have not tcpdumped correctly
+	// But we probably shouldn't crash the whole program if this assert fails
+	assert(ip_header.ip_p == 0x06);
+
+	// After getting the src and dest ip from the header
+	// we can use gethostbyaddr() from netdb.h to get the URL
+
+	// I think these are in network byte order, so we should use ntohs() here
+	// uint32_t source_ip = ip_header.ip_src.s_addr;
+	// uint32_t dest_ip = ip_header.ip_dst.s_addr;
+
+
+	// Now we should advance our pointer (packet)
+	// by the sizeof the IP header and TCP header to reach the
+	// HTTP request so we can read it
+	// But we shouldn't do anything for HTTPS
+
+	packet += ip_length + sizeof(struct tcphdr);
+
+	// We should be able to read the HTTP request now
 
 	/*
 	 * Return indicating no errors.
@@ -205,26 +231,27 @@ print_ip(FILE *outfile, const unsigned char **packet)
  *	packet        - A pointer to the captured packet.
  */
 void
-process_packet(u_char *thing,
-               const struct pcap_pkthdr *packet_header,
-               const u_char *packet)
+process_packet(u_char *user,
+               const struct pcap_pkthdr *h,
+               const u_char *bytes)
 {
 	/* Determine where the IP Header is */
 	const unsigned char *pointer;
 
 	/* Length of the data */
+	// what data?
 	long packet_length;
 
 	/*
 	 * Filter the packet using our BPF filter.
 	 */
-	if ((pcap_offline_filter(&HTTPFilter, packet_header, packet) == 0))
+	if ((pcap_offline_filter(&HTTPFilter, h, bytes) == 0))
 		return;
 
 	/*
 	 * Print the Ethernet Header
 	 */
-	pointer = packet;
+	pointer = bytes;
 	print_ether(outfile, &pointer);
 
 	/*
