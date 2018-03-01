@@ -171,8 +171,6 @@ void
 print_ip(FILE *outfile, const unsigned char **packet)
 {
 	// This is where all our code goes
-	// we don't care about the TCP header, only the IP header and the HTTP request
-	// which occurs immediately after the TCP header
 	struct ip ip_header;
 
 	/*
@@ -196,14 +194,11 @@ print_ip(FILE *outfile, const unsigned char **packet)
 
 	/********** Get src and dst IP addresses **********/
 	printf("\n================= IP Header ==============\n");
-	struct in_addr source_in_addr = ip_header.ip_src;
-	struct in_addr dest_in_addr = ip_header.ip_dst;
-
 	// These are in network byte order, so use ntohl() here?
-	uint32_t source_ip = ntohl(source_in_addr.s_addr);
+	uint32_t source_ip = ntohl(ip_header.ip_src.s_addr);
 	printf("Source IP: %d.%d.%d.%d\n", (source_ip >> 24) & 0xFF, (source_ip >> 16) & 0xFF, (source_ip >> 8) & 0xFF, (source_ip & 0xFF));
 
-	uint32_t dest_ip = ntohl(dest_in_addr.s_addr);
+	uint32_t dest_ip = ntohl(ip_header.ip_dst.s_addr);
 	printf("Dest IP: %d.%d.%d.%d\n\n", (dest_ip >> 24) & 0xFF, (dest_ip >> 16) & 0xFF, (dest_ip >> 8) & 0xFF, (dest_ip & 0xFF));
 
 	/************* convert address to hostname ***************/
@@ -222,16 +217,13 @@ print_ip(FILE *outfile, const unsigned char **packet)
 	else
 		return;
 
-	struct sockaddr_in sa;
-	sa.sin_family = AF_INET;
-	sa.sin_addr = dest_in_addr;
-	sa.sin_port = tcp_header.th_dport;
+	struct sockaddr_in sa = {AF_INET, tcp_header.th_dport, ip_header.ip_dst};
 
 	char host[1024];
 	// TODO Handle error
 	getnameinfo((struct sockaddr*) &sa, sizeof(sa), host, 1024, NULL, 0, NI_NAMEREQD);
 
-	printf("%s%s\n", ssl ? "https://" : "http://", host);
+	printf("%s%s\n\n", ssl ? "https://" : "http://", host);
 
 	/*********** TODO Read HTTP request to determine requested file *************/
 	// Now we should advance our pointer (packet)
