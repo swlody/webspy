@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <stdbool.h>
 
 /*
  * Standard UNIX includes
@@ -204,58 +205,42 @@ print_ip(FILE *outfile, const unsigned char **packet)
 	uint32_t source_ip = ntohl(source_in_addr.s_addr);
 	printf("Source IP: %d.%d.%d.%d\n", (source_ip >> 24) & 0xFF, (source_ip >> 16) & 0xFF, (source_ip >> 8) & 0xFF, (source_ip & 0xFF));
 
-	uint32_t dest_ip = ntohl(ip_header.ip_dst.s_addr);
+	uint32_t dest_ip = ntohl(dest_in_addr.s_addr);
 	printf("Dest IP: %d.%d.%d.%d\n\n", (dest_ip >> 24) & 0xFF, (dest_ip >> 16) & 0xFF, (dest_ip >> 8) & 0xFF, (dest_ip & 0xFF));
 
-	/************* TODO convert address to hostname ***************/
+	/************* convert address to hostname ***************/
 	// After getting the src and dest ip from the header
 	// we can use getnameinfo() from netdb.h to get the URL
+	*packet += ip_length;
 
-	// int getnameinfo(const struct sockaddr *sa, socklen_t salen,
- //                char *host, size_t hostlen,
- //                char *serv, size_t servlen, int flags);
+	struct tcphdr tcp_header;
+	memcpy(&tcp_header, *packet, sizeof(struct tcphdr));
 
-	// The sa argument is a pointer to a generic socket address structure (of type sockaddr_in or sockaddr_in6)
-	// of size salen that holds the input IP address and port number.
+	bool ssl;
+	if (ntohs(tcp_header.th_dport) == 80)
+		ssl = false;
+	else if (ntohs(tcp_header.th_dport) == 443)
+		ssl = true;
+	else
+		return;
 
-	// struct sockaddr_in {
- //               sa_family_t    sin_family; /* address family: AF_INET */
- //               in_port_t      sin_port;   /* port in network byte order */
- //               struct in_addr sin_addr;   /* internet address */
- //           };
+	struct sockaddr_in sa;
+	sa.sin_family = AF_INET;
+	sa.sin_addr = dest_in_addr;
+	sa.sin_port = tcp_header.th_dport;
 
-	// get src and dest ports from tcp headers
-	// salen = sizeof(struct sockaddr_in)?
-	// host and serv are char * buffers for host and service names to be placed
-	// of size hostlen and servlen
+	char host[1024];
+	// TODO Handle error
+	getnameinfo((struct sockaddr*) &sa, sizeof(sa), host, 1024, NULL, 0, NI_NAMEREQD);
 
-	// The flags argument modifies the behavior of getnameinfo() as follows:
-
-	// NI_NAMEREQD
-	// If set, then an error is returned if the hostname cannot be determined.
-	// NI_DGRAM
-	// If set, then the service is datagram (UDP) based rather than stream (TCP) based. This is required for the few ports (512-514) that have different services for UDP and TCP.
-	// NI_NOFQDN
-	// If set, return only the hostname part of the fully qualified domain name for local hosts.
-	// NI_NUMERICHOST
-	// If set, then the numeric form of the hostname is returned. (When not set, this will still happen in case the node's name cannot be determined.)
-	// NI_NUMERICSERV
-	// If set, then the numeric form of the service address is returned. (When not set, this will still happen in case the service's name cannot be determined.)
-
-
-
-
-	packet += ip_length;
-	// TODO we can get the src and dest ports here for the call to getnameinfo() above
-
+	printf("%s%s\n", ssl ? "https://" : "http://", host);
 
 	/*********** TODO Read HTTP request to determine requested file *************/
 	// Now we should advance our pointer (packet)
 	// by the sizeof the TCP header to reach the
 	// HTTP request so we can read it
 	// But we shouldn't do anything for HTTPS
-	// TODO how do we detect HTTPS?
-	packet += sizeof(struct tcphdr);
+	*packet += sizeof(struct tcphdr);
 
 	// We should be able to read the HTTP request now
 
