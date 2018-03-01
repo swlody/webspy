@@ -14,7 +14,12 @@ STRUCT HTTPFilter
            # Assume that we have an RFC 894 Ethernet packet; check the protocol
            # number and determine if the packet is an IP packet.
            #
-           LDAB 23
+           LDAH 12
+           BEQ 0x0800, %checktcp, %reject
+           #
+           # Given that we have an IP packet, check that protocol is TCP
+           #
+%checktcp  LDAB 23
            BEQ 0x06, %accept, %reject
 %accept    RET [(unsigned int)(-1)]
 %reject    RET 0

@@ -191,8 +191,7 @@ print_ip(FILE *outfile, const unsigned char **packet)
 	int ip_length = ip_header.ip_hl * 4;
 	// int ip_length = sizeof(struct ip);
 
-	// The header should be a TCP header (0x06), otherwise we have not tcpdumped correctly
-	// But we probably shouldn't crash the whole program if this condition fails
+	// The header should be a TCP header (0x06), otherwise our BPF failed
 	assert(ip_header.ip_p == 0x06);
 
 	/********** Get src and dst IP addresses **********/
