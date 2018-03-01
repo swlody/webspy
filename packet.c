@@ -184,32 +184,78 @@ print_ip(FILE *outfile, const unsigned char **packet)
 	 */
 	memcpy(&ip_header, *packet, sizeof(struct ip));
 
+
+	/********* Get size of header ************/
 	// both of these return 20 bytes for all packets in httpdump and httpsdump
-	// will they ever be different?
+	// TODO will they ever be different?
 	int ip_length = ip_header.ip_hl * 4;
 	// int ip_length = sizeof(struct ip);
 
 	// The header should be a TCP header (0x06), otherwise we have not tcpdumped correctly
-	// But we probably shouldn't crash the whole program if this assert fails
+	// But we probably shouldn't crash the whole program if this condition fails
 	assert(ip_header.ip_p == 0x06);
 
-	// I think these are in network byte order, so we should use ntohs() here
+	/********** Get src and dst IP addresses **********/
 	printf("\n================= IP Header ==============\n");
-	uint32_t source_ip = ntohl(ip_header.ip_src.s_addr);
+	struct in_addr source_in_addr = ip_header.ip_src;
+	struct in_addr dest_in_addr = ip_header.ip_dst;
+
+	// These are in network byte order, so use ntohl() here?
+	uint32_t source_ip = ntohl(source_in_addr.s_addr);
 	printf("Source IP: %d.%d.%d.%d\n", (source_ip >> 24) & 0xFF, (source_ip >> 16) & 0xFF, (source_ip >> 8) & 0xFF, (source_ip & 0xFF));
+
 	uint32_t dest_ip = ntohl(ip_header.ip_dst.s_addr);
 	printf("Dest IP: %d.%d.%d.%d\n\n", (dest_ip >> 24) & 0xFF, (dest_ip >> 16) & 0xFF, (dest_ip >> 8) & 0xFF, (dest_ip & 0xFF));
 
+	/************* TODO convert address to hostname ***************/
 	// After getting the src and dest ip from the header
-	// we can use gethostbyaddr() from netdb.h to get the URL
-	// or getnameinfo() - more complete function
+	// we can use getnameinfo() from netdb.h to get the URL
 
+	// int getnameinfo(const struct sockaddr *sa, socklen_t salen,
+ //                char *host, size_t hostlen,
+ //                char *serv, size_t servlen, int flags);
+
+	// The sa argument is a pointer to a generic socket address structure (of type sockaddr_in or sockaddr_in6)
+	// of size salen that holds the input IP address and port number.
+
+	// struct sockaddr_in {
+ //               sa_family_t    sin_family; /* address family: AF_INET */
+ //               in_port_t      sin_port;   /* port in network byte order */
+ //               struct in_addr sin_addr;   /* internet address */
+ //           };
+
+	// get src and dest ports from tcp headers
+	// salen = sizeof(struct sockaddr_in)?
+	// host and serv are char * buffers for host and service names to be placed
+	// of size hostlen and servlen
+
+	// The flags argument modifies the behavior of getnameinfo() as follows:
+
+	// NI_NAMEREQD
+	// If set, then an error is returned if the hostname cannot be determined.
+	// NI_DGRAM
+	// If set, then the service is datagram (UDP) based rather than stream (TCP) based. This is required for the few ports (512-514) that have different services for UDP and TCP.
+	// NI_NOFQDN
+	// If set, return only the hostname part of the fully qualified domain name for local hosts.
+	// NI_NUMERICHOST
+	// If set, then the numeric form of the hostname is returned. (When not set, this will still happen in case the node's name cannot be determined.)
+	// NI_NUMERICSERV
+	// If set, then the numeric form of the service address is returned. (When not set, this will still happen in case the service's name cannot be determined.)
+
+
+
+
+	packet += ip_length;
+	// TODO we can get the src and dest ports here for the call to getnameinfo() above
+
+
+	/*********** TODO Read HTTP request to determine requested file *************/
 	// Now we should advance our pointer (packet)
-	// by the sizeof the IP header and TCP header to reach the
+	// by the sizeof the TCP header to reach the
 	// HTTP request so we can read it
 	// But we shouldn't do anything for HTTPS
-
-	packet += ip_length + sizeof(struct tcphdr);
+	// TODO how do we detect HTTPS?
+	packet += sizeof(struct tcphdr);
 
 	// We should be able to read the HTTP request now
 
