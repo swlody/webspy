@@ -185,7 +185,6 @@ print_ip(FILE *outfile, const unsigned char **packet)
 	 */
 	memcpy(&ip_header, *packet, sizeof(struct ip));
 
-
 	/********* Get size of header ************/
 	// both of these return 20 bytes for all packets in httpdump and httpsdump
 	// TODO will they ever be different?
