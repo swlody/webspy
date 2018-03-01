@@ -193,13 +193,16 @@ print_ip(FILE *outfile, const unsigned char **packet)
 	// But we probably shouldn't crash the whole program if this assert fails
 	assert(ip_header.ip_p == 0x06);
 
+	// I think these are in network byte order, so we should use ntohs() here
+	printf("\n================= IP Header ==============\n");
+	uint32_t source_ip = ntohl(ip_header.ip_src.s_addr);
+	printf("Source IP: %d.%d.%d.%d\n", (source_ip >> 24) & 0xFF, (source_ip >> 16) & 0xFF, (source_ip >> 8) & 0xFF, (source_ip & 0xFF));
+	uint32_t dest_ip = ntohl(ip_header.ip_dst.s_addr);
+	printf("Dest IP: %d.%d.%d.%d\n\n", (dest_ip >> 24) & 0xFF, (dest_ip >> 16) & 0xFF, (dest_ip >> 8) & 0xFF, (dest_ip & 0xFF));
+
 	// After getting the src and dest ip from the header
 	// we can use gethostbyaddr() from netdb.h to get the URL
-
-	// I think these are in network byte order, so we should use ntohs() here
-	// uint32_t source_ip = ip_header.ip_src.s_addr;
-	// uint32_t dest_ip = ip_header.ip_dst.s_addr;
-
+	// or getnameinfo() - more complete function
 
 	// Now we should advance our pointer (packet)
 	// by the sizeof the IP header and TCP header to reach the
