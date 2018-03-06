@@ -2,6 +2,7 @@
  * Standard C includes
  */
 #include <stdio.h>
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
@@ -185,21 +186,21 @@ print_ip(FILE *outfile, const unsigned char **packet)
 
 	/********* Get size of header ************/
 	// both of these return 20 bytes for all packets in httpdump and httpsdump
-	// TODO will they ever be different?
-	int ip_length = ip_header.ip_hl * 4;
+	// Will they ever be different?
 	// int ip_length = sizeof(struct ip);
+	int ip_length = ip_header.ip_hl * 4;
 
 	// The header should be a TCP header (0x06), otherwise our BPF failed
 	assert(ip_header.ip_p == 0x06);
 
 	/********** Get src and dst IP addresses **********/
-	printf("\n================= IP Header ==============\n");
+	fprintf(outfile, "\n================= IP Header ==============\n");
 	// These are in network byte order, so use ntohl() here?
 	uint32_t source_ip = ntohl(ip_header.ip_src.s_addr);
-	printf("Source IP: %d.%d.%d.%d\n", (source_ip >> 24) & 0xFF, (source_ip >> 16) & 0xFF, (source_ip >> 8) & 0xFF, (source_ip & 0xFF));
+	fprintf(outfile, "Source IP: %d.%d.%d.%d\n", (source_ip >> 24) & 0xFF, (source_ip >> 16) & 0xFF, (source_ip >> 8) & 0xFF, (source_ip & 0xFF));
 
 	uint32_t dest_ip = ntohl(ip_header.ip_dst.s_addr);
-	printf("Dest IP: %d.%d.%d.%d\n\n", (dest_ip >> 24) & 0xFF, (dest_ip >> 16) & 0xFF, (dest_ip >> 8) & 0xFF, (dest_ip & 0xFF));
+	fprintf(outfile, "Dest IP: %d.%d.%d.%d\n\n", (dest_ip >> 24) & 0xFF, (dest_ip >> 16) & 0xFF, (dest_ip >> 8) & 0xFF, (dest_ip & 0xFF));
 
 	/************* convert address to hostname ***************/
 	// After getting the src and dest ip from the header
@@ -209,21 +210,50 @@ print_ip(FILE *outfile, const unsigned char **packet)
 	struct tcphdr tcp_header;
 	memcpy(&tcp_header, *packet, sizeof(struct tcphdr));
 
-	bool ssl;
+	// TODO Should we really be filtering out all non-port 80/443 requests?
+	bool is_ssl;
 	if (ntohs(tcp_header.th_dport) == 80)
-		ssl = false;
+		is_ssl = false;
 	else if (ntohs(tcp_header.th_dport) == 443)
-		ssl = true;
+		is_ssl = true;
 	else
 		return;
 
-	struct sockaddr_in sa = {AF_INET, tcp_header.th_dport, ip_header.ip_dst};
+	unsigned long int sockaddr_size = sizeof(struct sockaddr_in);
+	struct sockaddr_in *sa = (struct sockaddr_in *)malloc(sockaddr_size);
+	sa->sin_family = AF_INET;
+	sa->sin_port = tcp_header.th_dport;
+	sa->sin_addr = ip_header.ip_dst;
 
 	char host[1024];
-	// TODO Handle error
-	getnameinfo((struct sockaddr*) &sa, sizeof(sa), host, 1024, NULL, 0, NI_NAMEREQD);
+	int retries = 0;
 
-	printf("%s%s\n\n", ssl ? "https://" : "http://", host);
+	do {
+		errno = 0;
+		int errorcode = getnameinfo((struct sockaddr *)sa, sockaddr_size, host, 1024, NULL, 0, NI_NAMEREQD);
+
+		switch(errorcode) {
+			case EAI_SYSTEM:
+				fprintf(stderr, "%s\n", strerror(errno));
+				break;
+			case EAI_AGAIN:    // Try again!!
+				errno = 0;
+				retries++;
+				break;
+			case 0:
+			case EAI_BADFLAGS: // should never happen - not passing flags
+			case EAI_FAIL:     // nonrecoverable error
+			case EAI_FAMILY:   // family not recognized - should never happen
+			case EAI_MEMORY:   // out of memory
+			case EAI_NONAME:   // hostname could not be resolved
+			case EAI_OVERFLOW: // host buffer too small
+			default:
+				fprintf(stderr, "Hostname resolution error\n");
+				return;
+		}
+	} while (retries <= MAX_RESOLUTION_RETRIES);
+
+	fprintf(outfile, "%s%s\n\n", is_ssl ? "https://" : "http://", host);
 
 	/*********** TODO Read HTTP request to determine requested file *************/
 	// Now we should advance our pointer (packet)
@@ -233,6 +263,7 @@ print_ip(FILE *outfile, const unsigned char **packet)
 	*packet += sizeof(struct tcphdr);
 
 	// We should be able to read the HTTP request now
+	// TODO I think we need to be able to know the size of the payload
 
 	/*
 	 * Return indicating no errors.
