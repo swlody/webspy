@@ -209,8 +209,7 @@ print_ip(FILE *outfile, const unsigned char **packet)
 	*packet += ip_header_size;
 
 	struct tcphdr tcp_header;
-	unsigned int tcp_header_size = sizeof(struct tcphdr);
-	memcpy(&tcp_header, *packet, tcp_header_size);
+	memcpy(&tcp_header, *packet, sizeof(struct tcphdr));
 
 	// TODO Should we really be filtering out all non-port 80/443 requests?
 	bool is_ssl;
@@ -220,8 +219,6 @@ print_ip(FILE *outfile, const unsigned char **packet)
 		is_ssl = true;
 	else
 		return;
-
-	printf("%s\n", is_ssl ? "TRUE" : "FALSE");
 
 	unsigned long int sockaddr_size = sizeof(struct sockaddr_in);
 	struct sockaddr_in *sa = (struct sockaddr_in *)malloc(sockaddr_size);
@@ -267,9 +264,9 @@ print_ip(FILE *outfile, const unsigned char **packet)
 		fprintf(outfile, "%s%s\n\n", is_ssl ? "https://" : "http://", host);
 
 	/*********** Read HTTP request to determine requested file *************/
-	// TODO WHY 12???
-	*packet += sizeof(struct tcphdr) + 12;
-	int payload_length = total_packet_length - (ip_header_size + tcp_header_size) - 12;
+	int tcp_header_length = tcp_header.th_off * 4;
+	*packet += tcp_header_length;
+	int payload_length = total_packet_length - (ip_header_size + tcp_header_length);
 
 	if (payload_length == 0)
 		return;
