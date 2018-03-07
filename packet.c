@@ -187,15 +187,16 @@ print_ip(FILE *outfile, const unsigned char **packet)
 	/********* Get size of header ************/
 	// both of these return 20 bytes for all packets in httpdump and httpsdump
 	// Will they ever be different?
-	// int ip_length = sizeof(struct ip);
-	int ip_length = ip_header.ip_hl * 4;
+	// int ip_header_size = sizeof(struct ip);
+	int ip_header_size = ip_header.ip_hl * 4;
+	int total_packet_length = ntohs(ip_header.ip_len);
 
 	// The header should be a TCP header (0x06), otherwise our BPF failed
 	assert(ip_header.ip_p == 0x06);
 
 	/********** Get src and dst IP addresses **********/
 	fprintf(outfile, "\n================= IP Header ==============\n");
-	// These are in network byte order, so use ntohl() here?
+	// These are in network byte order
 	uint32_t source_ip = ntohl(ip_header.ip_src.s_addr);
 	fprintf(outfile, "Source IP: %d.%d.%d.%d\n", (source_ip >> 24) & 0xFF, (source_ip >> 16) & 0xFF, (source_ip >> 8) & 0xFF, (source_ip & 0xFF));
 
@@ -205,10 +206,11 @@ print_ip(FILE *outfile, const unsigned char **packet)
 	/************* convert address to hostname ***************/
 	// After getting the src and dest ip from the header
 	// we can use getnameinfo() from netdb.h to get the URL
-	*packet += ip_length;
+	*packet += ip_header_size;
 
 	struct tcphdr tcp_header;
-	memcpy(&tcp_header, *packet, sizeof(struct tcphdr));
+	unsigned int tcp_header_size = sizeof(struct tcphdr);
+	memcpy(&tcp_header, *packet, tcp_header_size);
 
 	// TODO Should we really be filtering out all non-port 80/443 requests?
 	bool is_ssl;
@@ -219,6 +221,8 @@ print_ip(FILE *outfile, const unsigned char **packet)
 	else
 		return;
 
+	printf("%s\n", is_ssl ? "TRUE" : "FALSE");
+
 	unsigned long int sockaddr_size = sizeof(struct sockaddr_in);
 	struct sockaddr_in *sa = (struct sockaddr_in *)malloc(sockaddr_size);
 	sa->sin_family = AF_INET;
@@ -227,20 +231,24 @@ print_ip(FILE *outfile, const unsigned char **packet)
 
 	char host[1024];
 	int retries = 0;
+	bool do_not_retry_anymore = false;
+	bool success = false;
 
 	do {
 		errno = 0;
 		int errorcode = getnameinfo((struct sockaddr *)sa, sockaddr_size, host, 1024, NULL, 0, NI_NAMEREQD);
+		if (errorcode == 0) {
+			success = true;
+			break;
+		}
 
-		switch(errorcode) {
-			case EAI_SYSTEM:
-				fprintf(stderr, "%s\n", strerror(errno));
-				break;
+		switch (errorcode) {
 			case EAI_AGAIN:    // Try again!!
 				errno = 0;
 				retries++;
 				break;
-			case 0:
+			case EAI_SYSTEM:
+				fprintf(stderr, "%s\n", strerror(errno));
 			case EAI_BADFLAGS: // should never happen - not passing flags
 			case EAI_FAIL:     // nonrecoverable error
 			case EAI_FAMILY:   // family not recognized - should never happen
@@ -248,22 +256,32 @@ print_ip(FILE *outfile, const unsigned char **packet)
 			case EAI_NONAME:   // hostname could not be resolved
 			case EAI_OVERFLOW: // host buffer too small
 			default:
-				fprintf(stderr, "Hostname resolution error\n");
-				return;
+				fprintf(stderr, "Unable to resolve hostname\n");
+				do_not_retry_anymore = true;
+				break;
 		}
-	} while (retries <= MAX_RESOLUTION_RETRIES);
+	} while (retries <= MAX_RESOLUTION_RETRIES && !do_not_retry_anymore);
 
-	fprintf(outfile, "%s%s\n\n", is_ssl ? "https://" : "http://", host);
+	// TODO Should print IP address instead if host could not be resolved
+	if (success)
+		fprintf(outfile, "%s%s\n\n", is_ssl ? "https://" : "http://", host);
 
-	/*********** TODO Read HTTP request to determine requested file *************/
-	// Now we should advance our pointer (packet)
-	// by the sizeof the TCP header to reach the
-	// HTTP request so we can read it
-	// But we shouldn't do anything for HTTPS
-	*packet += sizeof(struct tcphdr);
+	/*********** Read HTTP request to determine requested file *************/
+	// TODO WHY 12???
+	*packet += sizeof(struct tcphdr) + 12;
+	int payload_length = total_packet_length - (ip_header_size + tcp_header_size) - 12;
 
-	// We should be able to read the HTTP request now
-	// TODO I think we need to be able to know the size of the payload
+	if (payload_length == 0)
+		return;
+
+	char payload[payload_length];
+	memcpy(&payload, *packet, payload_length);
+	payload[payload_length] = '\0';
+
+	printf("LENGTH :: %d\n\n", payload_length);
+	printf("%s\n", payload);
+
+	// TODO Parse GET request for file and append to url
 
 	/*
 	 * Return indicating no errors.
