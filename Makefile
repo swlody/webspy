@@ -18,7 +18,7 @@ all: httpfilter.h webspy
 webspy: webspy.o packet.o
 
 httpfilter.h: http.bpf
-	$(BPFA) $< > $@
+	$(BPFA) $< -o $@
 
 #
 # Maintainence Targets

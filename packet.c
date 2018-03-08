@@ -49,7 +49,7 @@ FILE *outfile;
 /*
  * Function Prototypes
  */
-void 
+void
 process_packet(u_char *, const struct pcap_pkthdr *, const u_char *);
 
 /*
@@ -260,8 +260,7 @@ print_ip(FILE *outfile, const unsigned char **packet)
 	} while (retries <= MAX_RESOLUTION_RETRIES && !do_not_retry_anymore);
 
 	// TODO Should print IP address instead if host could not be resolved
-	if (success)
-		fprintf(outfile, "%s%s\n\n", is_ssl ? "https://" : "http://", host);
+
 
 	/*********** Read HTTP request to determine requested file *************/
 	int tcp_header_length = tcp_header.th_off * 4;
@@ -270,10 +269,27 @@ print_ip(FILE *outfile, const unsigned char **packet)
 
 	if (payload_length == 0)
 		return;
-
 	char payload[payload_length];
+	char payloadcopy[payload_length];
 	memcpy(&payload, *packet, payload_length);
 	payload[payload_length] = '\0';
+	memcpy(&payloadcopy, *packet, payload_length);
+	payloadcopy[payload_length] = '\0';
+
+	char *token[10];
+	char delim[]=" \n";
+	token[0] = strtok(payloadcopy, delim);
+	int i=0;
+	while (token[i] != NULL) {
+	        i++;
+	        token[i] = strtok(NULL, delim);
+	}
+	if (success){
+		fprintf(outfile, "%s%s%s\n\n", is_ssl ? "https://" : "http://", token[1], token[4]);
+	}
+
+
+
 
 	printf("LENGTH :: %d\n\n", payload_length);
 	printf("%s\n", payload);
