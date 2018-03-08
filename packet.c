@@ -267,12 +267,17 @@ print_ip(FILE *outfile, const unsigned char **packet)
 	if (payload_length == 0)
 		return;
 
-	char payload[payload_length];
-	memcpy(&payload, *packet, payload_length);
-
 	char *path;
-	strtok(payload, " ");
-	path = strtok(NULL, " ");
+
+	if (!is_ssl) {
+		char payload[payload_length + 1];
+		memcpy(&payload, *packet, payload_length);
+		payload[payload_length] = '\0';
+		strtok(payload, " ");
+		path = strtok(NULL, " ");
+	} else {
+		path = "/OMITTED";
+	}
 
 	fprintf(outfile, "%s", is_ssl ? "https://" : "http://");
 
