@@ -187,8 +187,7 @@ print_ip(FILE *outfile, const unsigned char **packet)
 	/********* Get size of header ************/
 	// both of these return 20 bytes for all packets in httpdump and httpsdump
 	// Will they ever be different?
-	// int ip_header_size = sizeof(struct ip);
-	int ip_header_size = ip_header.ip_hl * 4;
+	int ip_header_length = ip_header.ip_hl * 4;
 	int total_packet_length = ntohs(ip_header.ip_len);
 
 	// The header should be a TCP header (0x06), otherwise our BPF failed
@@ -206,16 +205,17 @@ print_ip(FILE *outfile, const unsigned char **packet)
 	/************* convert address to hostname ***************/
 	// After getting the src and dest ip from the header
 	// we can use getnameinfo() from netdb.h to get the URL
-	*packet += ip_header_size;
+	*packet += ip_header_length;
 
 	struct tcphdr tcp_header;
 	memcpy(&tcp_header, *packet, sizeof(struct tcphdr));
 
 	// TODO Should we really be filtering out all non-port 80/443 requests?
 	bool is_ssl;
-	if (ntohs(tcp_header.th_dport) == 80)
+	int dest_port = ntohs(tcp_header.th_dport);
+	if (dest_port == 80)
 		is_ssl = false;
-	else if (ntohs(tcp_header.th_dport) == 443)
+	else if (dest_port == 443)
 		is_ssl = true;
 	else
 		return;
@@ -223,19 +223,19 @@ print_ip(FILE *outfile, const unsigned char **packet)
 	unsigned long int sockaddr_size = sizeof(struct sockaddr_in);
 	struct sockaddr_in *sa = (struct sockaddr_in *)malloc(sockaddr_size);
 	sa->sin_family = AF_INET;
-	sa->sin_port = tcp_header.th_dport;
-	sa->sin_addr = ip_header.ip_dst;
+	sa->sin_port   = tcp_header.th_dport;
+	sa->sin_addr   = ip_header.ip_dst;
 
 	char host[1024];
 	int retries = 0;
 	bool do_not_retry_anymore = false;
-	bool success = false;
+	bool resolution_successful = false;
 
 	do {
 		errno = 0;
 		int errorcode = getnameinfo((struct sockaddr *)sa, sockaddr_size, host, 1024, NULL, 0, NI_NAMEREQD);
 		if (errorcode == 0) {
-			success = true;
+			resolution_successful = true;
 			break;
 		}
 
@@ -259,42 +259,29 @@ print_ip(FILE *outfile, const unsigned char **packet)
 		}
 	} while (retries <= MAX_RESOLUTION_RETRIES && !do_not_retry_anymore);
 
-	// TODO Should print IP address instead if host could not be resolved
-
-
 	/*********** Read HTTP request to determine requested file *************/
 	int tcp_header_length = tcp_header.th_off * 4;
 	*packet += tcp_header_length;
-	int payload_length = total_packet_length - (ip_header_size + tcp_header_length);
+	int payload_length = total_packet_length - (ip_header_length + tcp_header_length);
 
 	if (payload_length == 0)
 		return;
+
 	char payload[payload_length];
-	char payloadcopy[payload_length];
 	memcpy(&payload, *packet, payload_length);
-	payload[payload_length] = '\0';
-	memcpy(&payloadcopy, *packet, payload_length);
-	payloadcopy[payload_length] = '\0';
 
-	char *token[10];
-	char delim[]=" \n";
-	token[0] = strtok(payloadcopy, delim);
-	int i=0;
-	while (token[i] != NULL) {
-	        i++;
-	        token[i] = strtok(NULL, delim);
-	}
-	if (success){
-		fprintf(outfile, "%s%s%s\n\n", is_ssl ? "https://" : "http://", token[1], token[4]);
-	}
+	char *path;
+	strtok(payload, " ");
+	path = strtok(NULL, " ");
 
+	fprintf(outfile, "%s", is_ssl ? "https://" : "http://");
 
+	if (resolution_successful)
+		fprintf(outfile, "%s", host);
+	else
+		fprintf(outfile, "%d.%d.%d.%d", (dest_ip >> 24) & 0xFF, (dest_ip >> 16) & 0xFF, (dest_ip >> 8) & 0xFF, (dest_ip & 0xFF));
 
-
-	printf("LENGTH :: %d\n\n", payload_length);
-	printf("%s\n", payload);
-
-	// TODO Parse GET request for file and append to url
+	fprintf(outfile, "%s\n\n", path);
 
 	/*
 	 * Return indicating no errors.
