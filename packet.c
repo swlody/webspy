@@ -285,8 +285,7 @@ print_ip(FILE *outfile, const unsigned char **packet)
 	else
 		fprintf(outfile, "%d.%d.%d.%d", (dest_ip >> 24) & 0xFF, (dest_ip >> 16) & 0xFF, (dest_ip >> 8) & 0xFF, (dest_ip & 0xFF));
 
-	if (!is_ssl)
-		fprintf(outfile, "%s\n\n", path);
+	fprintf(outfile, "%s\n\n", path);
 
 	/*
 	 * Return indicating no errors.
