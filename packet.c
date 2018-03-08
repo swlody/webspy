@@ -187,20 +187,20 @@ print_ip(FILE *outfile, const unsigned char **packet)
 	/********* Get size of header ************/
 	// both of these return 20 bytes for all packets in httpdump and httpsdump
 	// Will they ever be different?
-	int ip_header_length = ip_header.ip_hl * 4;
+	int ip_header_length    = ip_header.ip_hl * 4;
 	int total_packet_length = ntohs(ip_header.ip_len);
 
 	// The header should be a TCP header (0x06), otherwise our BPF failed
-	assert(ip_header.ip_p == 0x06);
+	assert(ip_header.ip_p == IPPROTO_TCP);
 
 	/********** Get src and dst IP addresses **********/
-	fprintf(outfile, "\n================= IP Header ==============\n");
+	fprintf(outfile, "\n==================== IP Header =================\n");
 	// These are in network byte order
 	uint32_t source_ip = ntohl(ip_header.ip_src.s_addr);
-	fprintf(outfile, "Source IP: %d.%d.%d.%d\n", (source_ip >> 24) & 0xFF, (source_ip >> 16) & 0xFF, (source_ip >> 8) & 0xFF, (source_ip & 0xFF));
+	fprintf(outfile, "Source IP:\t\t%d.%d.%d.%d\n", (source_ip >> 24) & 0xFF, (source_ip >> 16) & 0xFF, (source_ip >> 8) & 0xFF, (source_ip & 0xFF));
 
 	uint32_t dest_ip = ntohl(ip_header.ip_dst.s_addr);
-	fprintf(outfile, "Dest IP: %d.%d.%d.%d\n\n", (dest_ip >> 24) & 0xFF, (dest_ip >> 16) & 0xFF, (dest_ip >> 8) & 0xFF, (dest_ip & 0xFF));
+	fprintf(outfile, "Dest IP:\t\t%d.%d.%d.%d\n\n", (dest_ip >> 24) & 0xFF, (dest_ip >> 16) & 0xFF, (dest_ip >> 8) & 0xFF, (dest_ip & 0xFF));
 
 	/************* convert address to hostname ***************/
 	// After getting the src and dest ip from the header
@@ -210,7 +210,6 @@ print_ip(FILE *outfile, const unsigned char **packet)
 	struct tcphdr tcp_header;
 	memcpy(&tcp_header, *packet, sizeof(struct tcphdr));
 
-	// TODO Should we really be filtering out all non-port 80/443 requests?
 	bool is_ssl;
 	int dest_port = ntohs(tcp_header.th_dport);
 	if (dest_port == 80)
@@ -220,17 +219,20 @@ print_ip(FILE *outfile, const unsigned char **packet)
 	else
 		return;
 
+	// Create sockaddr struct for passage to getnameinfo() - hostname resolution
 	unsigned long int sockaddr_size = sizeof(struct sockaddr_in);
 	struct sockaddr_in *sa = (struct sockaddr_in *)malloc(sockaddr_size);
 	sa->sin_family = AF_INET;
 	sa->sin_port   = tcp_header.th_dport;
 	sa->sin_addr   = ip_header.ip_dst;
 
+	// More set up for hostname resolution
 	char host[1024];
-	int retries = 0;
+	int  retries = 0;
 	bool do_not_retry_anymore  = false;
 	bool resolution_successful = false;
 
+	// Try to resolve the hostname
 	do {
 		errno = 0;
 		int errorcode = getnameinfo((struct sockaddr *)sa, sockaddr_size, host, 1024, NULL, 0, NI_NAMEREQD);
@@ -244,7 +246,7 @@ print_ip(FILE *outfile, const unsigned char **packet)
 				errno = 0;
 				retries++;
 				break;
-			case EAI_SYSTEM:
+			case EAI_SYSTEM:   // errno has been set - do something about it
 				fprintf(stderr, "%s\n", strerror(errno));
 			case EAI_BADFLAGS: // should never happen - not passing flags
 			case EAI_FAIL:     // nonrecoverable error
@@ -260,31 +262,45 @@ print_ip(FILE *outfile, const unsigned char **packet)
 	} while (retries <= MAX_RESOLUTION_RETRIES && !do_not_retry_anymore);
 
 	/*********** Read HTTP request to determine requested file *************/
+	// First get the length of the tcp header
 	int tcp_header_length = tcp_header.th_off * 4;
+	// and advance our packet pointer past it
 	*packet += tcp_header_length;
+	// Now we can compute the length of the payload itself
+	// from the size of the packet minus the size of the headers
 	int payload_length = total_packet_length - (ip_header_length + tcp_header_length);
 
+	// No payload - don't do anything
 	if (payload_length == 0)
 		return;
 
+	// Now we will try to read in the path of the file being requested from the server
 	char *path;
 
 	char payload[payload_length];
 	if (is_ssl) {
+		// If the request was an SSL request - the packet is encrypted, so we can't read it
 		path = "/OMITTED";
 	} else {
+		// Otherwise, the file path is at the top of the payload e.g.
+		// GET /foo/bar.html HTTP/1.1
 		memcpy(&payload, *packet, payload_length);
+		// We just want the second token ("/foo/bar.html"), so skip the first one ("GET")
 		strtok(payload, " ");
 		path = strtok(NULL, " ");
 	}
 
 	fprintf(outfile, "%s", is_ssl ? "https://" : "http://");
 
-	if (resolution_successful)
+	if (resolution_successful) {
+		// If we resolved the hostname, print it
 		fprintf(outfile, "%s", host);
-	else
+	} else {
+		// Otherwise we just print the IP address that we saw - not every server has a hostname
 		fprintf(outfile, "%d.%d.%d.%d", (dest_ip >> 24) & 0xFF, (dest_ip >> 16) & 0xFF, (dest_ip >> 8) & 0xFF, (dest_ip & 0xFF));
+	}
 
+	// Finally print the path
 	fprintf(outfile, "%s\n\n", path);
 
 	/*
@@ -302,7 +318,7 @@ print_ip(FILE *outfile, const unsigned char **packet)
  *	print the packet's information into the output file.
  *
  * Inputs:
- *	thing         - I have no idea what this is.
+ *	user          - I have no idea what this is.
  *	packet_header - The header that libpcap precedes a packet with.  It
  *	                indicates how much of the packet was captured.
  *	packet        - A pointer to the captured packet.
