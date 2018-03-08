@@ -228,7 +228,7 @@ print_ip(FILE *outfile, const unsigned char **packet)
 
 	char host[1024];
 	int retries = 0;
-	bool do_not_retry_anymore = false;
+	bool do_not_retry_anymore  = false;
 	bool resolution_successful = false;
 
 	do {
