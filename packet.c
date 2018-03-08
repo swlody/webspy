@@ -167,12 +167,16 @@ print_ether(FILE *outfile, const unsigned char **packet)
  * Outputs:
  *   packet  - The pointer is advanced to the first byte past the IPv4
  *             header.
+ *
+ * Returns:
+ *   ip_header - The struct represenation  of the ip header itself.
  */
-void
+struct ip *
 print_ip(FILE *outfile, const unsigned char **packet)
 {
 	// This is where all our code goes
-	struct ip ip_header;
+	unsigned long ip_size = sizeof(struct ip);
+	struct ip *ip_header = (struct ip *)malloc(ip_size);
 
 	/*
 	 * After reading comments in tcpdump source code, I discovered that
@@ -182,33 +186,73 @@ print_ip(FILE *outfile, const unsigned char **packet)
 	 * This is apparently what's causing me problems, so I will word align
 	 * it just like tcpdump does.
 	 */
-	memcpy(&ip_header, *packet, sizeof(struct ip));
-
-	/********* Get size of header ************/
-	// both of these return 20 bytes for all packets in httpdump and httpsdump
-	// Will they ever be different?
-	int ip_header_length    = ip_header.ip_hl * 4;
-	int total_packet_length = ntohs(ip_header.ip_len);
+	memcpy(ip_header, *packet, ip_size);
 
 	// The header should be a TCP header (0x06), otherwise our BPF failed
-	assert(ip_header.ip_p == IPPROTO_TCP);
+	assert(ip_header->ip_p == IPPROTO_TCP);
 
 	/********** Get src and dst IP addresses **********/
 	fprintf(outfile, "\n==================== IP Header =================\n");
 	// These are in network byte order
-	uint32_t source_ip = ntohl(ip_header.ip_src.s_addr);
+	uint32_t source_ip = ntohl(ip_header->ip_src.s_addr);
 	fprintf(outfile, "Source IP:\t\t%d.%d.%d.%d\n", (source_ip >> 24) & 0xFF, (source_ip >> 16) & 0xFF, (source_ip >> 8) & 0xFF, (source_ip & 0xFF));
 
-	uint32_t dest_ip = ntohl(ip_header.ip_dst.s_addr);
+	uint32_t dest_ip = ntohl(ip_header->ip_dst.s_addr);
 	fprintf(outfile, "Dest IP:\t\t%d.%d.%d.%d\n\n", (dest_ip >> 24) & 0xFF, (dest_ip >> 16) & 0xFF, (dest_ip >> 8) & 0xFF, (dest_ip & 0xFF));
 
 	/************* convert address to hostname ***************/
 	// After getting the src and dest ip from the header
 	// we can use getnameinfo() from netdb.h to get the URL
-	*packet += ip_header_length;
+	*packet += ip_header->ip_hl * 4;
+	
+	return ip_header;
+}
+
+/*
+ * Function: process_packet()
+ *
+ * Purpose:
+ *	This function is called each time a packet is captured.  It will
+ *	determine if the packet is one that is desired, and then it will
+ *	print the packet's information into the output file.
+ *
+ * Inputs:
+ *	user          - I have no idea what this is.
+ *	packet_header - The header that libpcap precedes a packet with.  It
+ *	                indicates how much of the packet was captured.
+ *	packet        - A pointer to the captured packet.
+ */
+void
+process_packet(u_char *user,
+               const struct pcap_pkthdr *h,
+               const u_char *bytes)
+{
+	/* Determine where the IP Header is */
+	const unsigned char *pointer;
+
+	/*
+	 * Filter the packet using our BPF filter.
+	 */
+	if ((pcap_offline_filter(&HTTPFilter, h, bytes) == 0))
+		return;
+
+	/*
+	 * Print the Ethernet Header
+	 */
+	pointer = bytes;
+	print_ether(outfile, &pointer);
+
+	/*
+	 * Find the pointer to the IP header.
+	 */
+	struct ip *ip_header = print_ip(outfile, &pointer);
+
+	/********* Get size of header ************/
+	int ip_header_length    = ip_header->ip_hl * 4;
+	int total_packet_length = ntohs(ip_header->ip_len);
 
 	struct tcphdr tcp_header;
-	memcpy(&tcp_header, *packet, sizeof(struct tcphdr));
+	memcpy(&tcp_header, pointer, sizeof(struct tcphdr));
 
 	bool is_ssl;
 	int dest_port = ntohs(tcp_header.th_dport);
@@ -224,7 +268,7 @@ print_ip(FILE *outfile, const unsigned char **packet)
 	struct sockaddr_in *sa = (struct sockaddr_in *)malloc(sockaddr_size);
 	sa->sin_family = AF_INET;
 	sa->sin_port   = tcp_header.th_dport;
-	sa->sin_addr   = ip_header.ip_dst;
+	sa->sin_addr   = ip_header->ip_dst;
 
 	// More set up for hostname resolution
 	char host[1024];
@@ -265,7 +309,7 @@ print_ip(FILE *outfile, const unsigned char **packet)
 	// First get the length of the tcp header
 	int tcp_header_length = tcp_header.th_off * 4;
 	// and advance our packet pointer past it
-	*packet += tcp_header_length;
+	pointer += tcp_header_length;
 	// Now we can compute the length of the payload itself
 	// from the size of the packet minus the size of the headers
 	int payload_length = total_packet_length - (ip_header_length + tcp_header_length);
@@ -284,7 +328,7 @@ print_ip(FILE *outfile, const unsigned char **packet)
 	} else {
 		// Otherwise, the file path is at the top of the payload e.g.
 		// GET /foo/bar.html HTTP/1.1
-		memcpy(&payload, *packet, payload_length);
+		memcpy(&payload, pointer, payload_length);
 		// We just want the second token ("/foo/bar.html"), so skip the first one ("GET")
 		strtok(payload, " ");
 		path = strtok(NULL, " ");
@@ -297,6 +341,7 @@ print_ip(FILE *outfile, const unsigned char **packet)
 		fprintf(outfile, "%s", host);
 	} else {
 		// Otherwise we just print the IP address that we saw - not every server has a hostname
+		uint32_t dest_ip = ntohl(ip_header->ip_dst.s_addr);
 		fprintf(outfile, "%d.%d.%d.%d", (dest_ip >> 24) & 0xFF, (dest_ip >> 16) & 0xFF, (dest_ip >> 8) & 0xFF, (dest_ip & 0xFF));
 	}
 
@@ -306,46 +351,5 @@ print_ip(FILE *outfile, const unsigned char **packet)
 	/*
 	 * Return indicating no errors.
 	 */
-	return;
-}
-
-/*
- * Function: process_packet()
- *
- * Purpose:
- *	This function is called each time a packet is captured.  It will
- *	determine if the packet is one that is desired, and then it will
- *	print the packet's information into the output file.
- *
- * Inputs:
- *	user          - I have no idea what this is.
- *	packet_header - The header that libpcap precedes a packet with.  It
- *	                indicates how much of the packet was captured.
- *	packet        - A pointer to the captured packet.
- */
-void
-process_packet(u_char *user,
-               const struct pcap_pkthdr *h,
-               const u_char *bytes)
-{
-	/* Determine where the IP Header is */
-	const unsigned char *pointer;
-
-	/*
-	 * Filter the packet using our BPF filter.
-	 */
-	if ((pcap_offline_filter(&HTTPFilter, h, bytes) == 0))
-		return;
-
-	/*
-	 * Print the Ethernet Header
-	 */
-	pointer = bytes;
-	print_ether(outfile, &pointer);
-
-	/*
-	 * Find the pointer to the IP header.
-	 */
-	print_ip(outfile, &pointer);
 	return;
 }
