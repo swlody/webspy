@@ -269,14 +269,13 @@ print_ip(FILE *outfile, const unsigned char **packet)
 
 	char *path;
 
-	if (!is_ssl) {
-		char payload[payload_length + 1];
+	char payload[payload_length];
+	if (is_ssl) {
+		path = "/OMITTED";
+	} else {
 		memcpy(&payload, *packet, payload_length);
-		payload[payload_length] = '\0';
 		strtok(payload, " ");
 		path = strtok(NULL, " ");
-	} else {
-		path = "/OMITTED";
 	}
 
 	fprintf(outfile, "%s", is_ssl ? "https://" : "http://");
@@ -286,7 +285,8 @@ print_ip(FILE *outfile, const unsigned char **packet)
 	else
 		fprintf(outfile, "%d.%d.%d.%d", (dest_ip >> 24) & 0xFF, (dest_ip >> 16) & 0xFF, (dest_ip >> 8) & 0xFF, (dest_ip & 0xFF));
 
-	fprintf(outfile, "%s\n\n", path);
+	if (!is_ssl)
+		fprintf(outfile, "%s\n\n", path);
 
 	/*
 	 * Return indicating no errors.
@@ -315,10 +315,6 @@ process_packet(u_char *user,
 {
 	/* Determine where the IP Header is */
 	const unsigned char *pointer;
-
-	/* Length of the data */
-	// what data?
-	long packet_length;
 
 	/*
 	 * Filter the packet using our BPF filter.
