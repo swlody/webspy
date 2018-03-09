@@ -41,6 +41,8 @@
 #include "webspy.h"
 #include "httpfilter.h"
 
+#define PRINT_ERROR
+
 /*
  * The descriptor of the output file.
  */
@@ -82,133 +84,6 @@ init_pcap(FILE *thefile, char *filename)
 }
 
 /*
- * Function: print_ether
- *
- * Description:
- *   Print the Ethernet header.
- *
- * Inputs:
- *   outfile - The file to which to print the Ethernet header information
- *   packet  - A pointer to the pointer to the packet information.
- *
- * Outputs:
- *   packet  - The pointer is advanced to the first byte past the Ethernet
- *             header.
- */
-void
-print_ether(FILE *outfile, const unsigned char **packet)
-{
-	struct ether_header header;
-	int index;
-
-	/*
-	 * Align the data by copying it into a Ethernet header structure.
-	 */
-	memcpy(&header, *packet, sizeof(struct ether_header));
-
-	/*
-	 * Print out the Ethernet information.
-	 */
-	fprintf(outfile, "================= ETHERNET HEADER ==============\n");
-	fprintf(outfile, "Source Address:\t\t");
-	for (index=0; index < ETHER_ADDR_LEN; index++)
-		fprintf(outfile, "%x", header.ether_shost[index]);
-	fprintf(outfile, "\n");
-
-	fprintf(outfile, "Destination Address:\t");
-	for (index=0; index < ETHER_ADDR_LEN; index++)
-		fprintf (outfile, "%x", header.ether_dhost[index]);
-	fprintf(outfile, "\n");
-
-	fprintf(outfile, "Protocol Type:\t\t");
-	switch (ntohs(header.ether_type)) {
-		case ETHERTYPE_PUP:
-			fprintf(outfile, "PUP Protocol\n");
-			break;
-
-		case ETHERTYPE_IP:
-			fprintf(outfile, "IP Protocol\n");
-			break;
-
-		case ETHERTYPE_ARP:
-			fprintf(outfile, "ARP Protocol\n");
-			break;
-
-		case ETHERTYPE_REVARP:
-			fprintf(outfile, "RARP Protocol\n");
-			break;
-
-		default:
-			fprintf(outfile, "Unknown Protocol: %x\n", header.ether_type);
-			break;
-	}
-
-	/*
-	 * Adjust the pointer to point after the Ethernet header.
-	 */
-	*packet += sizeof(struct ether_header);
-
-	/*
-	 * Return indicating no errors.
-	 */
-	return;
-}
-
-/*
- * Function: print_ip
- *
- * Description:
- *   Print the IPv4 header.
- *
- * Inputs:
- *   outfile - The file to which to print the Ethernet header information
- *   packet  - A pointer to the pointer to the packet information.
- *
- * Outputs:
- *   packet  - The pointer is advanced to the first byte past the IPv4
- *             header.
- *
- * Returns:
- *   ip_header - The struct represenation  of the ip header itself.
- */
-struct ip *
-print_ip(FILE *outfile, const unsigned char **packet)
-{
-	// This is where all our code goes
-	unsigned long ip_size = sizeof(struct ip);
-	struct ip *ip_header = (struct ip *)malloc(ip_size);
-
-	/*
-	 * After reading comments in tcpdump source code, I discovered that
-	 * the dump file does not guarantee that the IP header is aligned
-	 * on a word boundary.
-	 *
-	 * This is apparently what's causing me problems, so I will word align
-	 * it just like tcpdump does.
-	 */
-	memcpy(ip_header, *packet, ip_size);
-
-	// The header should be a TCP header (0x06), otherwise our BPF failed
-	assert(ip_header->ip_p == IPPROTO_TCP);
-
-	/********** Get src and dst IP addresses **********/
-	fprintf(outfile, "\n==================== IP Header =================\n");
-	// These are in network byte order
-	uint32_t source_ip = ntohl(ip_header->ip_src.s_addr);
-	fprintf(outfile, "Source IP:\t\t%d.%d.%d.%d\n", (source_ip >> 24) & 0xFF, (source_ip >> 16) & 0xFF, (source_ip >> 8) & 0xFF, (source_ip & 0xFF));
-
-	uint32_t dest_ip = ntohl(ip_header->ip_dst.s_addr);
-	fprintf(outfile, "Dest IP:\t\t%d.%d.%d.%d\n\n", (dest_ip >> 24) & 0xFF, (dest_ip >> 16) & 0xFF, (dest_ip >> 8) & 0xFF, (dest_ip & 0xFF));
-
-	/************* convert address to hostname ***************/
-	// After getting the src and dest ip from the header
-	// we can use getnameinfo() from netdb.h to get the URL
-	*packet += ip_header->ip_hl * 4;
-	
-	return ip_header;
-}
-
-/*
  * Function: process_packet()
  *
  * Purpose:
@@ -225,63 +100,65 @@ print_ip(FILE *outfile, const unsigned char **packet)
 void
 process_packet(u_char *user,
                const struct pcap_pkthdr *h,
-               const u_char *bytes)
+               const u_char *packet)
 {
-	/* Determine where the IP Header is */
-	const unsigned char *pointer;
-
 	/*
 	 * Filter the packet using our BPF filter.
 	 */
-	if ((pcap_offline_filter(&HTTPFilter, h, bytes) == 0))
+
+	// http.bpf is configured to return the port if we see an HTTP/S request, otherwise 0
+	int dest_port = pcap_offline_filter(&HTTPFilter, h, packet);
+	if (dest_port == 0)
 		return;
 
 	/*
-	 * Print the Ethernet Header
+	 * Move pointer past the ethernet header (we don't care about the source or destination MAC addresses)
 	 */
-	pointer = bytes;
-	print_ether(outfile, &pointer);
+	packet += sizeof(struct ether_header);
 
 	/*
-	 * Find the pointer to the IP header.
+	 * Read the IP header into its struct representation
+	 * Must be aligned on a word boundary - so use memcpy
 	 */
-	struct ip *ip_header = print_ip(outfile, &pointer);
+	struct ip ip_header;
+	memcpy(&ip_header, packet, sizeof(struct ip));
 
 	/********* Get size of header ************/
-	int ip_header_length    = ip_header->ip_hl * 4;
-	int total_packet_length = ntohs(ip_header->ip_len);
+	// This is already in the correct endianness as defined by ip.h
+	int ip_header_length    = ip_header.ip_hl * 4;
+	// Now advance the pointer past the IP header
+	packet += ip_header_length;
 
+	// Get the length of the entire packet (including payload and IP, TCP, and ethernet headers)
+	int total_packet_length = ntohs(ip_header.ip_len);
+
+	// Now we read the tcp header into its struct
 	struct tcphdr tcp_header;
-	memcpy(&tcp_header, pointer, sizeof(struct tcphdr));
+	memcpy(&tcp_header, packet, sizeof(struct tcphdr));
 
-	bool is_ssl;
-	int dest_port = ntohs(tcp_header.th_dport);
-	if (dest_port == 80)
-		is_ssl = false;
-	else if (dest_port == 443)
-		is_ssl = true;
-	else
-		return;
+	// We already filtered out all non TCP requests using the BPF filter
+	assert(ip_header.ip_p == IPPROTO_TCP);
 
 	// Create sockaddr struct for passage to getnameinfo() - hostname resolution
 	unsigned long int sockaddr_size = sizeof(struct sockaddr_in);
 	struct sockaddr_in *sa = (struct sockaddr_in *)malloc(sockaddr_size);
 	sa->sin_family = AF_INET;
 	sa->sin_port   = tcp_header.th_dport;
-	sa->sin_addr   = ip_header->ip_dst;
+	sa->sin_addr   = ip_header.ip_dst;
 
 	// More set up for hostname resolution
 	char host[1024];
 	int  retries = 0;
-	bool do_not_retry_anymore  = false;
-	bool resolution_successful = false;
+	bool keep_retrying   = true;
+	bool resolve_success = false;
+	uint32_t dest_ip = ip_header.ip_dst.s_addr;
 
 	// Try to resolve the hostname
 	do {
 		errno = 0;
 		int errorcode = getnameinfo((struct sockaddr *)sa, sockaddr_size, host, 1024, NULL, 0, NI_NAMEREQD);
 		if (errorcode == 0) {
-			resolution_successful = true;
+			resolve_success = true;
 			break;
 		}
 
@@ -291,7 +168,9 @@ process_packet(u_char *user,
 				retries++;
 				break;
 			case EAI_SYSTEM:   // errno has been set - do something about it
+				#ifdef PRINT_ERROR
 				fprintf(stderr, "%s\n", strerror(errno));
+				#endif
 			case EAI_BADFLAGS: // should never happen - not passing flags
 			case EAI_FAIL:     // nonrecoverable error
 			case EAI_FAMILY:   // family not recognized - should never happen
@@ -299,17 +178,19 @@ process_packet(u_char *user,
 			case EAI_NONAME:   // hostname could not be resolved
 			case EAI_OVERFLOW: // host buffer too small
 			default:
-				fprintf(stderr, "Unable to resolve hostname\n");
-				do_not_retry_anymore = true;
+				#ifdef PRINT_ERROR
+				fprintf(stderr, "Unable to resolve hostname for address for IP address %d.%d.%d.%d\n", 
+						(dest_ip & 0xFF), (dest_ip >> 8) & 0xFF, (dest_ip >> 16) & 0xFF, (dest_ip >> 24));
+				#endif
+				keep_retrying = false;
 				break;
 		}
-	} while (retries <= MAX_RESOLUTION_RETRIES && !do_not_retry_anymore);
+	} while (keep_retrying && retries <= MAX_RESOLUTION_RETRIES);
 
 	/*********** Read HTTP request to determine requested file *************/
 	// First get the length of the tcp header
 	int tcp_header_length = tcp_header.th_off * 4;
-	// and advance our packet pointer past it
-	pointer += tcp_header_length;
+
 	// Now we can compute the length of the payload itself
 	// from the size of the packet minus the size of the headers
 	int payload_length = total_packet_length - (ip_header_length + tcp_header_length);
@@ -318,35 +199,38 @@ process_packet(u_char *user,
 	if (payload_length == 0)
 		return;
 
+	// Otherwise we keep going
+	// advance our packet pointer to the start of the payload
+	packet += tcp_header_length;
+
 	// Now we will try to read in the path of the file being requested from the server
 	char *path;
 
 	char payload[payload_length];
-	if (is_ssl) {
+	if (dest_port == 443) {
 		// If the request was an SSL request - the packet is encrypted, so we can't read it
 		path = "/OMITTED";
 	} else {
 		// Otherwise, the file path is at the top of the payload e.g.
 		// GET /foo/bar.html HTTP/1.1
-		memcpy(&payload, pointer, payload_length);
+		memcpy(&payload, packet, payload_length);
 		// We just want the second token ("/foo/bar.html"), so skip the first one ("GET")
 		strtok(payload, " ");
 		path = strtok(NULL, " ");
 	}
 
-	fprintf(outfile, "%s", is_ssl ? "https://" : "http://");
+	fprintf(outfile, "%s", dest_port == 443 ? "https://" : "http://");
 
-	if (resolution_successful) {
+	if (resolve_success) {
 		// If we resolved the hostname, print it
 		fprintf(outfile, "%s", host);
 	} else {
 		// Otherwise we just print the IP address that we saw - not every server has a hostname
-		uint32_t dest_ip = ntohl(ip_header->ip_dst.s_addr);
-		fprintf(outfile, "%d.%d.%d.%d", (dest_ip >> 24) & 0xFF, (dest_ip >> 16) & 0xFF, (dest_ip >> 8) & 0xFF, (dest_ip & 0xFF));
+		fprintf(outfile, "%d.%d.%d.%d", (dest_ip & 0xFF), (dest_ip >> 8) & 0xFF, (dest_ip >> 16) & 0xFF, (dest_ip >> 24));
 	}
 
 	// Finally print the path
-	fprintf(outfile, "%s\n\n", path);
+	fprintf(outfile, "%s\n", path);
 
 	/*
 	 * Return indicating no errors.

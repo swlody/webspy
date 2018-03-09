@@ -71,8 +71,6 @@ main(int argc, char *argv[])
 	/*
 	 * Begin looping through collecting packets until we hit the
 	 * end of the file.
-	 *
-	 * TODO Will this work with piped input from tcpdump?
 	 */
 	if ((pcap_loop(pcapd, 0, process_packet, buffer)) == -1)
 		pcap_perror(pcapd, argv[0]);
